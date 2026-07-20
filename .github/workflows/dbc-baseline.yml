@@ -85,6 +85,12 @@ jobs:
           cd "$HOME/targets/meteora/repos/dynamic-bonding-curve"
           anchor build -p dynamic_bonding_curve --ignore-keys
 
+      - name: Sanity check test paths
+        run: |
+          cd "$HOME/targets/meteora/repos/dynamic-bonding-curve"
+          ls -lah ./tests/first_swap_with_transfer_hook.tests.ts
+          ls -lah ./tests/migrate_to_damm_v2_with_transfer_hook.tests.ts
+
       - name: Run first swap transfer-hook baseline
         run: |
           set -euo pipefail
@@ -100,16 +106,15 @@ jobs:
           cd "$HOME/targets/meteora/repos/dynamic-bonding-curve"
           mkdir -p "$GITHUB_WORKSPACE/artifacts"
 
-          # Bun supports beforeAll/afterAll, but this test file uses Mocha-style before/after.
-          python3 - <<'PY2'
+          python3 - <<'PY'
 from pathlib import Path
 p = Path("tests/migrate_to_damm_v2_with_transfer_hook.tests.ts")
 s = p.read_text()
 s = s.replace("before(async () =>", "beforeAll(async () =>")
 s = s.replace("after(async () =>", "afterAll(async () =>")
 p.write_text(s)
-print("[patched test runner aliases]", p)
-PY2
+print("[patched test runner lifecycle]", p)
+PY
 
           bun test ./tests/migrate_to_damm_v2_with_transfer_hook.tests.ts \
             2>&1 | tee "$GITHUB_WORKSPACE/artifacts/phase1g-migrate-transfer-hook-baseline.log"
