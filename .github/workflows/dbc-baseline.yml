@@ -99,9 +99,22 @@ jobs:
           set -euo pipefail
           cd "$HOME/targets/meteora/repos/dynamic-bonding-curve"
           mkdir -p "$GITHUB_WORKSPACE/artifacts"
+
+          # Bun supports beforeAll/afterAll, but this test file uses Mocha-style before/after.
+          python3 - <<'PY2'
+from pathlib import Path
+p = Path("tests/migrate_to_damm_v2_with_transfer_hook.tests.ts")
+s = p.read_text()
+s = s.replace("before(async () =>", "beforeAll(async () =>")
+s = s.replace("after(async () =>", "afterAll(async () =>")
+p.write_text(s)
+print("[patched test runner aliases]", p)
+PY2
+
           bun test ./tests/migrate_to_damm_v2_with_transfer_hook.tests.ts \
             2>&1 | tee "$GITHUB_WORKSPACE/artifacts/phase1g-migrate-transfer-hook-baseline.log"
           ! grep -q "The following filters did not match any test files" "$GITHUB_WORKSPACE/artifacts/phase1g-migrate-transfer-hook-baseline.log"
+          ! grep -q "ReferenceError: before is not defined" "$GITHUB_WORKSPACE/artifacts/phase1g-migrate-transfer-hook-baseline.log"
 
       - name: Upload logs
         uses: actions/upload-artifact@v4
