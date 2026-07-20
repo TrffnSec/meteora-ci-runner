@@ -52,10 +52,18 @@ jobs:
         run: |
           source "$HOME/.cargo/env"
           cargo install --git https://github.com/solana-foundation/anchor avm --force
-          echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
+
+          export PATH="$HOME/.cargo/bin:$HOME/.avm/bin:$PATH"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          "$HOME/.avm/bin/avm" install 1.0.2
-          "$HOME/.avm/bin/avm" use 1.0.2
+          echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
+
+          avm install 1.0.2
+          avm use 1.0.2
+
+          export PATH="$HOME/.avm/bin:$HOME/.cargo/bin:$PATH"
+          which avm
+          which anchor
+          avm --version
           anchor --version
 
       - name: Clone DBC repo
