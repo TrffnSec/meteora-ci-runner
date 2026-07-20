@@ -1,0 +1,99 @@
+name: DBC baseline transfer-hook tests
+
+on:
+  workflow_dispatch:
+
+jobs:
+  dbc-baseline:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Show runner
+        run: |
+          uname -a
+          uname -m
+          df -h
+          free -h
+
+      - name: Install system deps
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            curl \
+            unzip \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            protobuf-compiler \
+            libudev-dev \
+            git
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Install Bun
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+
+      - name: Install Solana / Agave 3.1.10
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v3.1.10/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Verify Solana
+        run: |
+          solana --version
+
+      - name: Install Anchor AVM and Anchor 1.0.2
+        run: |
+          source "$HOME/.cargo/env"
+          cargo install --git https://github.com/solana-foundation/anchor avm --force
+          echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          "$HOME/.avm/bin/avm" install 1.0.2
+          "$HOME/.avm/bin/avm" use 1.0.2
+          anchor --version
+
+      - name: Clone DBC repo
+        run: |
+          mkdir -p "$HOME/targets/meteora/repos"
+          cd "$HOME/targets/meteora/repos"
+          git clone https://github.com/meteoraag/dynamic-bonding-curve.git
+          cd dynamic-bonding-curve
+          git checkout 3b540e94b5b20ba37733de6e25f58522a0cd8961
+          git log -1 --format='commit=%H%nauthor_date=%aI%ncommit_date=%cI%nsubject=%s'
+
+      - name: Install JS deps
+        run: |
+          cd "$HOME/targets/meteora/repos/dynamic-bonding-curve"
+          bun install
+
+      - name: Build DBC
+        run: |
+          cd "$HOME/targets/meteora/repos/dynamic-bonding-curve"
+          anchor build -p dynamic_bonding_curve --ignore-keys
+
+      - name: Run first swap transfer-hook baseline
+        run: |
+          cd "$HOME/targets/meteora/repos/dynamic-bonding-curve"
+          mkdir -p "$GITHUB_WORKSPACE/artifacts"
+          bun test tests/first_swap_with_transfer_hook.tests.ts \
+            2>&1 | tee "$GITHUB_WORKSPACE/artifacts/phase1g-first-swap-transfer-hook-baseline.log"
+
+      - name: Run migrate transfer-hook baseline
+        run: |
+          cd "$HOME/targets/meteora/repos/dynamic-bonding-curve"
+          mkdir -p "$GITHUB_WORKSPACE/artifacts"
+          bun test tests/migrate_to_damm_v2_with_transfer_hook.tests.ts \
+            2>&1 | tee "$GITHUB_WORKSPACE/artifacts/phase1g-migrate-transfer-hook-baseline.log"
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: meteora-dbc-baseline-logs
+          path: artifacts/
