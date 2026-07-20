@@ -1,0 +1,186 @@
+name: DBC phase1h transfer-hook diagnostics
+
+on:
+  workflow_dispatch:
+
+jobs:
+  phase1h:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Show runner
+        run: |
+          uname -a
+          uname -m
+          df -h
+          free -h
+
+      - name: Install system deps
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            curl \
+            unzip \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            protobuf-compiler \
+            libudev-dev \
+            git
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Install Bun
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+
+      - name: Install Solana / Agave 3.1.10
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v3.1.10/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Verify Solana
+        run: |
+          solana --version
+
+      - name: Install Anchor AVM and Anchor 1.0.2
+        run: |
+          source "$HOME/.cargo/env"
+          cargo install --git https://github.com/solana-foundation/anchor avm --force
+
+          export PATH="$HOME/.cargo/bin:$HOME/.avm/bin:$PATH"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
+
+          avm install 1.0.2
+          avm use 1.0.2
+
+          export PATH="$HOME/.avm/bin:$HOME/.cargo/bin:$PATH"
+          which avm
+          which anchor
+          avm --version
+          anchor --version
+
+      - name: Clone DBC repo
+        run: |
+          mkdir -p "$HOME/targets/meteora/repos"
+          cd "$HOME/targets/meteora/repos"
+          git clone https://github.com/meteoraag/dynamic-bonding-curve.git
+          cd dynamic-bonding-curve
+          git checkout 3b540e94b5b20ba37733de6e25f58522a0cd8961
+          git log -1 --format='commit=%H%nauthor_date=%aI%ncommit_date=%cI%nsubject=%s'
+
+      - name: Install JS deps
+        run: |
+          cd "$HOME/targets/meteora/repos/dynamic-bonding-curve"
+          bun install
+
+      - name: Inject Phase 1H diagnostics
+        run: |
+          set -euo pipefail
+          cd "$HOME/targets/meteora/repos/dynamic-bonding-curve"
+
+          python3 - <<'PY'
+from pathlib import Path
+
+p = Path("tests/utils/token.ts")
+s = p.read_text()
+
+needle = "return { slices, accounts };"
+patch = """
+  console.log("PHASE1H_TRANSFER_HOOK_REMAINING_ACCOUNTS", JSON.stringify({
+    slices: slices.map((x) => ({
+      accountsType: x.accountsType,
+      length: Number(x.length),
+    })),
+    accounts: accounts.map((x) => ({
+      pubkey: x.pubkey.toBase58(),
+      isSigner: x.isSigner,
+      isWritable: x.isWritable,
+    })),
+  }, null, 2));
+
+  return { slices, accounts };
+"""
+
+if needle not in s:
+    raise SystemExit("needle not found in tests/utils/token.ts")
+
+s = s.replace(needle, patch, 1)
+p.write_text(s)
+print("[patched]", p)
+PY
+
+          python3 - <<'PY'
+from pathlib import Path
+
+p = Path("programs/dynamic-bonding-curve/src/instructions/swap/process_swap.rs")
+s = p.read_text()
+
+needle = "parse_transfer_hook_accounts("
+insert = r'''
+    msg!("PHASE1H_PROCESS_SWAP_REMAINING_ACCOUNTS_START count={}", remaining_accounts.len());
+    for (i, account) in remaining_accounts.iter().enumerate() {
+        msg!(
+            "PHASE1H_REMAINING_ACCOUNT index={} key={} signer={} writable={} owner={} executable={}",
+            i,
+            account.key,
+            account.is_signer,
+            account.is_writable,
+            account.owner,
+            account.executable
+        );
+    }
+    msg!("PHASE1H_PROCESS_SWAP_REMAINING_ACCOUNTS_END");
+'''
+
+if needle not in s:
+    raise SystemExit("needle not found in process_swap.rs")
+
+s = s.replace(needle, insert + "\n    " + needle, 1)
+p.write_text(s)
+print("[patched]", p)
+PY
+
+      - name: Build instrumented DBC
+        run: |
+          cd "$HOME/targets/meteora/repos/dynamic-bonding-curve"
+          anchor build -p dynamic_bonding_curve --ignore-keys
+
+      - name: Run Phase 1H first-swap diagnostic
+        run: |
+          set -euo pipefail
+          cd "$HOME/targets/meteora/repos/dynamic-bonding-curve"
+          mkdir -p "$GITHUB_WORKSPACE/artifacts"
+
+          bun test ./tests/first_swap_with_transfer_hook.tests.ts \
+            2>&1 | tee "$GITHUB_WORKSPACE/artifacts/phase1h-first-swap-transfer-hook-diagnostics.log"
+
+          grep -q "PHASE1H_TRANSFER_HOOK_REMAINING_ACCOUNTS" "$GITHUB_WORKSPACE/artifacts/phase1h-first-swap-transfer-hook-diagnostics.log"
+          grep -q "PHASE1H_PROCESS_SWAP_REMAINING_ACCOUNTS_START" "$GITHUB_WORKSPACE/artifacts/phase1h-first-swap-transfer-hook-diagnostics.log"
+
+      - name: Run Phase 1H migration diagnostic
+        run: |
+          set -euo pipefail
+          cd "$HOME/targets/meteora/repos/dynamic-bonding-curve"
+          mkdir -p "$GITHUB_WORKSPACE/artifacts"
+
+          perl -0pi -e 's/before\(async \(\) =>/beforeAll(async () =>/g; s/after\(async \(\) =>/afterAll(async () =>/g; s/it\("Admin create operator account"/it.skip("Admin create operator account"/g' ./tests/migrate_to_damm_v2_with_transfer_hook.tests.ts
+
+          bun test ./tests/migrate_to_damm_v2_with_transfer_hook.tests.ts \
+            2>&1 | tee "$GITHUB_WORKSPACE/artifacts/phase1h-migrate-transfer-hook-diagnostics.log"
+
+          grep -q "PHASE1H_TRANSFER_HOOK_REMAINING_ACCOUNTS" "$GITHUB_WORKSPACE/artifacts/phase1h-migrate-transfer-hook-diagnostics.log"
+          grep -q "PHASE1H_PROCESS_SWAP_REMAINING_ACCOUNTS_START" "$GITHUB_WORKSPACE/artifacts/phase1h-migrate-transfer-hook-diagnostics.log"
+
+      - name: Upload Phase 1H logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: meteora-dbc-phase1h-diagnostics
+          path: artifacts/
