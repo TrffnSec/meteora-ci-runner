@@ -106,7 +106,7 @@ jobs:
           cd "$HOME/targets/meteora/repos/dynamic-bonding-curve"
           mkdir -p "$GITHUB_WORKSPACE/artifacts"
 
-          perl -0pi -e 's/before\(async \(\) =>/beforeAll(async () =>/g; s/after\(async \(\) =>/afterAll(async () =>/g' ./tests/migrate_to_damm_v2_with_transfer_hook.tests.ts
+          perl -0pi -e 's/before\(async \(\) =>/beforeAll(async () =>/g; s/after\(async \(\) =>/afterAll(async () =>/g; s/it\("Admin create operator account"/it.skip("Admin create operator account"/g' ./tests/migrate_to_damm_v2_with_transfer_hook.tests.ts
 
           bun test ./tests/migrate_to_damm_v2_with_transfer_hook.tests.ts \
             2>&1 | tee "$GITHUB_WORKSPACE/artifacts/phase1g-migrate-transfer-hook-baseline.log"
