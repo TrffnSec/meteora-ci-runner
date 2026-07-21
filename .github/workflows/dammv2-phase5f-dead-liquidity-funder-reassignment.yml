@@ -57,12 +57,14 @@ jobs:
           p = Path("tests/deadLiquidityReward.test.ts")
           s = p.read_text()
 
-          if "updateRewardFunder," not in s:
+          # Import updateRewardFunder from ./helpers.
+          if "    updateRewardFunder,\n" not in s:
               s = s.replace(
                   "    U64_MAX,\n    warpToTimestamp,\n",
                   "    U64_MAX,\n    updateRewardFunder,\n    warpToTimestamp,\n",
               )
 
+          # Import ATA creator helper.
           if 'getOrCreateAssociatedTokenAccount' not in s:
               s = s.replace(
                   'import { BaseFeeMode, encodeFeeTimeSchedulerParams } from "./helpers/feeCodec";\n',
@@ -70,90 +72,100 @@ jobs:
                   'import { getOrCreateAssociatedTokenAccount } from "./helpers/token";\n',
               )
 
-          test_block = r'''
-              it("PHASE5F: creator can reassign already-funded reward0 funder and withdraw dead-liquidity rewards", async () => {
-                const { pool, position, rewardEnd, rewardMid } =
-                  await setupFundedCompoundingPool();
+          marker = 'describe("Funder can withdrawDeadLiquidityReward from DEAD_LIQUIDITY share"'
+          idx = s.find(marker)
+          if idx == -1:
+              raise SystemExit("Phase5F describe marker not found")
 
-                const poolAfterFund = getPool(svm, pool);
-                expect(poolAfterFund.rewardInfos[REWARD_INDEX].funder.toString()).eq(
-                  funder.publicKey.toString()
-                );
+          line_start = s.rfind("\n", 0, idx) + 1
+          line_end = s.find("\n", idx)
+          describe_line = s[line_start:line_end]
+          indent = describe_line[:len(describe_line) - len(describe_line.lstrip())]
+          test_indent = indent + "  "
 
-                await updateRewardFunder(svm, {
-                  index: REWARD_INDEX,
-                  signer: creator,
-                  pool,
-                  newFunder: creator.publicKey,
-                });
+          test_block = f'''
+{test_indent}it("PHASE5F: creator can reassign already-funded reward0 funder and withdraw dead-liquidity rewards", async () => {{
+{test_indent}  const {{ pool, position, rewardEnd, rewardMid }} =
+{test_indent}    await setupFundedCompoundingPool();
 
-                const poolAfterTakeover = getPool(svm, pool);
-                expect(poolAfterTakeover.rewardInfos[REWARD_INDEX].funder.toString()).eq(
-                  creator.publicKey.toString()
-                );
+{test_indent}  expect(getPool(svm, pool).rewardInfos[REWARD_INDEX].funder.toString()).eq(
+{test_indent}    funder.publicKey.toString()
+{test_indent}  );
 
-                const creatorRewardAta = getOrCreateAssociatedTokenAccount(
-                  svm,
-                  creator,
-                  rewardMint,
-                  creator.publicKey,
-                  TOKEN_PROGRAM_ID
-                );
+{test_indent}  await updateRewardFunder(svm, {{
+{test_indent}    index: REWARD_INDEX,
+{test_indent}    signer: creator,
+{test_indent}    pool,
+{test_indent}    newFunder: creator.publicKey,
+{test_indent}  }});
 
-                warpToTimestamp(svm, rewardMid);
-                await claimReward(svm, {
-                  index: REWARD_INDEX,
-                  user: creator,
-                  pool,
-                  position,
-                  skipReward: 0,
-                });
+{test_indent}  expect(getPool(svm, pool).rewardInfos[REWARD_INDEX].funder.toString()).eq(
+{test_indent}    creator.publicKey.toString()
+{test_indent}  );
 
-                await removeAllLiquidity(svm, {
-                  owner: creator,
-                  pool,
-                  position,
-                  tokenAAmountThreshold: new BN(0),
-                  tokenBAmountThreshold: new BN(0),
-                });
+{test_indent}  const creatorRewardAta = getOrCreateAssociatedTokenAccount(
+{test_indent}    svm,
+{test_indent}    creator,
+{test_indent}    rewardMint,
+{test_indent}    creator.publicKey,
+{test_indent}    TOKEN_PROGRAM_ID
+{test_indent}  );
 
-                const afterExit = getPool(svm, pool);
-                expect(afterExit.liquidity.toString()).eq(DEAD_LIQUIDITY.toString());
+{test_indent}  warpToTimestamp(svm, rewardMid);
 
-                warpToTimestamp(svm, rewardEnd.addn(1));
+{test_indent}  await claimReward(svm, {{
+{test_indent}    index: REWARD_INDEX,
+{test_indent}    user: creator,
+{test_indent}    pool,
+{test_indent}    position,
+{test_indent}    skipReward: 0,
+{test_indent}  }});
 
-                const rewardVault = afterExit.rewardInfos[REWARD_INDEX].vault;
-                const before = new BN(getTokenBalance(svm, creatorRewardAta));
+{test_indent}  await removeAllLiquidity(svm, {{
+{test_indent}    owner: creator,
+{test_indent}    pool,
+{test_indent}    position,
+{test_indent}    tokenAAmountThreshold: new BN(0),
+{test_indent}    tokenBAmountThreshold: new BN(0),
+{test_indent}  }});
 
-                await withdrawDeadLiquidityReward(svm, {
-                  index: REWARD_INDEX,
-                  funder: creator,
-                  pool,
-                });
+{test_indent}  const afterExit = getPool(svm, pool);
+{test_indent}  expect(afterExit.liquidity.toString()).eq(DEAD_LIQUIDITY.toString());
 
-                const after = new BN(getTokenBalance(svm, creatorRewardAta));
-                const delta = after.sub(before);
-                const vaultResidual = new BN(getTokenBalance(svm, rewardVault));
+{test_indent}  warpToTimestamp(svm, rewardEnd.addn(1));
 
-                console.log("PHASE5F_CREATOR_REWARD0_DEAD_LIQUIDITY_TAKEOVER_DELTA", {
-                  before: before.toString(),
-                  after: after.toString(),
-                  delta: delta.toString(),
-                  vaultResidual: vaultResidual.toString(),
-                });
+{test_indent}  const rewardVault = afterExit.rewardInfos[REWARD_INDEX].vault;
+{test_indent}  const before = new BN(getTokenBalance(svm, creatorRewardAta));
 
-                expect(delta.gtn(0)).eq(true);
-                expect(vaultResidual.eqn(0)).eq(true);
-              });
+{test_indent}  await withdrawDeadLiquidityReward(svm, {{
+{test_indent}    index: REWARD_INDEX,
+{test_indent}    funder: creator,
+{test_indent}    pool,
+{test_indent}  }});
 
-          '''
+{test_indent}  const after = new BN(getTokenBalance(svm, creatorRewardAta));
+{test_indent}  const delta = after.sub(before);
+{test_indent}  const vaultResidual = new BN(getTokenBalance(svm, rewardVault));
+
+{test_indent}  console.log("PHASE5F_CREATOR_REWARD0_DEAD_LIQUIDITY_TAKEOVER_DELTA", {{
+{test_indent}    before: before.toString(),
+{test_indent}    after: after.toString(),
+{test_indent}    delta: delta.toString(),
+{test_indent}    vaultResidual: vaultResidual.toString(),
+{test_indent}  }});
+
+{test_indent}  expect(delta.gtn(0)).eq(true);
+{test_indent}  expect(vaultResidual.eqn(0)).eq(true);
+{test_indent}}});
+
+'''
 
           if "PHASE5F: creator can reassign already-funded reward0 funder" not in s:
-              s = s.replace(
-                  '      it("After the last LP exits", async () => {',
-                  test_block + '\n      it("After the last LP exits", async () => {',
-                  1,
-              )
+              insert_at = line_end + 1
+              s = s[:insert_at] + test_block + s[insert_at:]
+
+          if "PHASE5F: creator can reassign already-funded reward0 funder" not in s:
+              raise SystemExit("Phase5F insertion failed")
 
           p.write_text(s)
           print("[patched]", p)
@@ -161,6 +173,8 @@ jobs:
 
           echo "===== verify Phase5F insertion ====="
           grep -n "PHASE5F" tests/deadLiquidityReward.test.ts
+          echo "===== inserted snippet ====="
+          grep -n -A8 -B4 "PHASE5F" tests/deadLiquidityReward.test.ts
 
       - name: Install deps
         working-directory: damm-v2
