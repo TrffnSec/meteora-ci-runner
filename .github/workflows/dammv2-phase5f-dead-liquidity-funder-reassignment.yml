@@ -62,6 +62,15 @@ jobs:
           p = Path("tests/deadLiquidityReward.test.ts")
           s = p.read_text()
 
+          print("===== source markers =====")
+          for needle in [
+              "Dead liquidity reward",
+              "withdrawDeadLiquidityReward",
+              "After the last LP exits",
+              "non-compounding pool",
+          ]:
+              print(needle, s.find(needle))
+
           if "    updateRewardFunder,\n" not in s:
               s = s.replace(
                   "    U64_MAX,\n    warpToTimestamp,\n",
@@ -76,89 +85,88 @@ jobs:
               )
 
           test_lines = [
-              '      it("PHASE5F: creator can reassign already-funded reward0 funder and withdraw dead-liquidity rewards", async () => {',
-              '        const { pool, position, rewardEnd, rewardMid } =',
-              '          await setupFundedCompoundingPool();',
+              '  it("PHASE5F: creator can reassign already-funded reward0 funder and withdraw dead-liquidity rewards", async () => {',
+              '    const { pool, position, rewardEnd, rewardMid } = await setupFundedCompoundingPool();',
               '',
-              '        expect(getPool(svm, pool).rewardInfos[REWARD_INDEX].funder.toString()).eq(',
-              '          funder.publicKey.toString()',
-              '        );',
+              '    expect(getPool(svm, pool).rewardInfos[REWARD_INDEX].funder.toString()).eq(',
+              '      funder.publicKey.toString()',
+              '    );',
               '',
-              '        await updateRewardFunder(svm, {',
-              '          index: REWARD_INDEX,',
-              '          signer: creator,',
-              '          pool,',
-              '          newFunder: creator.publicKey,',
-              '        });',
+              '    await updateRewardFunder(svm, {',
+              '      index: REWARD_INDEX,',
+              '      signer: creator,',
+              '      pool,',
+              '      newFunder: creator.publicKey,',
+              '    });',
               '',
-              '        expect(getPool(svm, pool).rewardInfos[REWARD_INDEX].funder.toString()).eq(',
-              '          creator.publicKey.toString()',
-              '        );',
+              '    expect(getPool(svm, pool).rewardInfos[REWARD_INDEX].funder.toString()).eq(',
+              '      creator.publicKey.toString()',
+              '    );',
               '',
-              '        const creatorRewardAta = getOrCreateAssociatedTokenAccount(',
-              '          svm,',
-              '          creator,',
-              '          rewardMint,',
-              '          creator.publicKey,',
-              '          TOKEN_PROGRAM_ID',
-              '        );',
+              '    const creatorRewardAta = getOrCreateAssociatedTokenAccount(',
+              '      svm,',
+              '      creator,',
+              '      rewardMint,',
+              '      creator.publicKey,',
+              '      TOKEN_PROGRAM_ID',
+              '    );',
               '',
-              '        warpToTimestamp(svm, rewardMid);',
+              '    warpToTimestamp(svm, rewardMid);',
               '',
-              '        await claimReward(svm, {',
-              '          index: REWARD_INDEX,',
-              '          user: creator,',
-              '          pool,',
-              '          position,',
-              '          skipReward: 0,',
-              '        });',
+              '    await claimReward(svm, {',
+              '      index: REWARD_INDEX,',
+              '      user: creator,',
+              '      pool,',
+              '      position,',
+              '      skipReward: 0,',
+              '    });',
               '',
-              '        await removeAllLiquidity(svm, {',
-              '          owner: creator,',
-              '          pool,',
-              '          position,',
-              '          tokenAAmountThreshold: new BN(0),',
-              '          tokenBAmountThreshold: new BN(0),',
-              '        });',
+              '    await removeAllLiquidity(svm, {',
+              '      owner: creator,',
+              '      pool,',
+              '      position,',
+              '      tokenAAmountThreshold: new BN(0),',
+              '      tokenBAmountThreshold: new BN(0),',
+              '    });',
               '',
-              '        const afterExit = getPool(svm, pool);',
-              '        expect(afterExit.liquidity.toString()).eq(DEAD_LIQUIDITY.toString());',
+              '    const afterExit = getPool(svm, pool);',
+              '    expect(afterExit.liquidity.toString()).eq(DEAD_LIQUIDITY.toString());',
               '',
-              '        warpToTimestamp(svm, rewardEnd.addn(1));',
+              '    warpToTimestamp(svm, rewardEnd.addn(1));',
               '',
-              '        const rewardVault = afterExit.rewardInfos[REWARD_INDEX].vault;',
-              '        const before = new BN(getTokenBalance(svm, creatorRewardAta));',
+              '    const rewardVault = afterExit.rewardInfos[REWARD_INDEX].vault;',
+              '    const before = new BN(getTokenBalance(svm, creatorRewardAta));',
               '',
-              '        await withdrawDeadLiquidityReward(svm, {',
-              '          index: REWARD_INDEX,',
-              '          funder: creator,',
-              '          pool,',
-              '        });',
+              '    await withdrawDeadLiquidityReward(svm, {',
+              '      index: REWARD_INDEX,',
+              '      funder: creator,',
+              '      pool,',
+              '    });',
               '',
-              '        const after = new BN(getTokenBalance(svm, creatorRewardAta));',
-              '        const delta = after.sub(before);',
-              '        const vaultResidual = new BN(getTokenBalance(svm, rewardVault));',
+              '    const after = new BN(getTokenBalance(svm, creatorRewardAta));',
+              '    const delta = after.sub(before);',
+              '    const vaultResidual = new BN(getTokenBalance(svm, rewardVault));',
               '',
-              '        console.log("PHASE5F_CREATOR_REWARD0_DEAD_LIQUIDITY_TAKEOVER_DELTA", {',
-              '          before: before.toString(),',
-              '          after: after.toString(),',
-              '          delta: delta.toString(),',
-              '          vaultResidual: vaultResidual.toString(),',
-              '        });',
+              '    console.log("PHASE5F_CREATOR_REWARD0_DEAD_LIQUIDITY_TAKEOVER_DELTA", {',
+              '      before: before.toString(),',
+              '      after: after.toString(),',
+              '      delta: delta.toString(),',
+              '      vaultResidual: vaultResidual.toString(),',
+              '    });',
               '',
-              '        expect(delta.gtn(0)).eq(true);',
-              '        expect(vaultResidual.eqn(0)).eq(true);',
-              '      });',
+              '    expect(delta.gtn(0)).eq(true);',
+              '    expect(vaultResidual.eqn(0)).eq(true);',
+              '  });',
               '',
           ]
 
           test_block = "\n".join(test_lines)
 
           if "PHASE5F: creator can reassign already-funded reward0 funder" not in s:
-              marker = '    describe("Funder can withdrawDeadLiquidityReward from DEAD_LIQUIDITY share", () => {'
-              if marker not in s:
-                  raise SystemExit("Phase5F insertion marker not found")
-              s = s.replace(marker, marker + "\n" + test_block, 1)
+              last_close = s.rfind("\n});")
+              if last_close == -1:
+                  raise SystemExit("Could not find final describe close")
+              s = s[:last_close] + "\n" + test_block + s[last_close:]
 
           if "PHASE5F: creator can reassign already-funded reward0 funder" not in s:
               raise SystemExit("Phase5F insertion failed")
@@ -170,7 +178,7 @@ jobs:
           echo "===== verify Phase5F insertion ====="
           grep -n "PHASE5F" tests/deadLiquidityReward.test.ts
           echo "===== inserted snippet ====="
-          grep -n -A8 -B4 "PHASE5F" tests/deadLiquidityReward.test.ts
+          grep -n -A10 -B6 "PHASE5F" tests/deadLiquidityReward.test.ts
 
       - name: Install deps
         working-directory: damm-v2
