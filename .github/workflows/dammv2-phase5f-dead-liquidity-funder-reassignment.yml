@@ -72,10 +72,27 @@ jobs:
               print(needle, s.find(needle))
 
           if "    updateRewardFunder,\n" not in s:
-              s = s.replace(
-                  "    U64_MAX,\n    warpToTimestamp,\n",
-                  "    U64_MAX,\n    updateRewardFunder,\n    warpToTimestamp,\n",
-              )
+              for marker in [
+                  "    warpToTimestamp,\n    withdrawDeadLiquidityReward,\n",
+                  "    withdrawDeadLiquidityReward,\n",
+                  "    U64_MAX,\n",
+              ]:
+                  if marker in s:
+                      if marker.startswith("    warpToTimestamp"):
+                          s = s.replace(
+                              marker,
+                              "    updateRewardFunder,\n" + marker,
+                              1,
+                          )
+                      else:
+                          s = s.replace(
+                              marker,
+                              marker + "    updateRewardFunder,\n",
+                              1,
+                          )
+                      break
+              else:
+                  raise SystemExit("Could not insert updateRewardFunder import")
 
           if 'getOrCreateAssociatedTokenAccount' not in s:
               s = s.replace(
@@ -189,15 +206,26 @@ jobs:
       - name: Run Phase5F
         working-directory: damm-v2
         run: |
+          set +e
+
           bun run build-local
+          BUILD_STATUS=$?
+          if [ "$BUILD_STATUS" -ne 0 ]; then
+            exit "$BUILD_STATUS"
+          fi
+
           ANCHOR_WALLET=keys/local/admin-bossj3JvwiNK7pvjr149DqdtJxf2gdygbcmEPTkb2F1.json \
             bunx ts-mocha -p ./tsconfig.json -t 1000000 tests/deadLiquidityReward.test.ts --grep "PHASE5F" \
             2>&1 | tee phase5f.log
 
-          if grep -q "0 passing" phase5f.log; then
+          TEST_STATUS=${PIPESTATUS[0]}
+
+          if ! grep -q "PHASE5F" phase5f.log; then
             echo "[fatal] Phase5F grep matched zero tests"
             exit 1
           fi
+
+          exit "$TEST_STATUS"
 
       - name: Upload Phase5F log
         uses: actions/upload-artifact@v4
