@@ -1,0 +1,177 @@
+name: DAMM v2 Phase5F dead-liquidity funder reassignment
+
+on:
+  workflow_dispatch:
+
+jobs:
+  phase5f:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout CI repo
+        uses: actions/checkout@v4
+
+      - name: Checkout DAMM v2
+        uses: actions/checkout@v4
+        with:
+          repository: MeteoraAg/damm-v2
+          path: damm-v2
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config build-essential libudev-dev libssl-dev protobuf-compiler
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.15.1
+
+      - name: Install Solana/Agave CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Install Anchor CLI 1.0.2
+        run: |
+          cargo install \
+            --git https://github.com/solana-foundation/anchor \
+            --tag v1.0.2 \
+            anchor-cli \
+            --locked \
+            --force
+
+      - name: Patch Phase5F test
+        working-directory: damm-v2
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("tests/deadLiquidityReward.test.ts")
+          s = p.read_text()
+
+          if "updateRewardFunder," not in s:
+              s = s.replace(
+                  "    U64_MAX,\n    warpToTimestamp,\n",
+                  "    U64_MAX,\n    updateRewardFunder,\n    warpToTimestamp,\n",
+              )
+
+          if 'getOrCreateAssociatedTokenAccount' not in s:
+              s = s.replace(
+                  'import { BaseFeeMode, encodeFeeTimeSchedulerParams } from "./helpers/feeCodec";\n',
+                  'import { BaseFeeMode, encodeFeeTimeSchedulerParams } from "./helpers/feeCodec";\n'
+                  'import { getOrCreateAssociatedTokenAccount } from "./helpers/token";\n',
+              )
+
+          test_block = r'''
+              it("PHASE5F: creator can reassign already-funded reward0 funder and withdraw dead-liquidity rewards", async () => {
+                const { pool, position, rewardEnd, rewardMid } =
+                  await setupFundedCompoundingPool();
+
+                const poolAfterFund = getPool(svm, pool);
+                expect(poolAfterFund.rewardInfos[REWARD_INDEX].funder.toString()).eq(
+                  funder.publicKey.toString()
+                );
+
+                await updateRewardFunder(svm, {
+                  index: REWARD_INDEX,
+                  signer: creator,
+                  pool,
+                  newFunder: creator.publicKey,
+                });
+
+                const poolAfterTakeover = getPool(svm, pool);
+                expect(poolAfterTakeover.rewardInfos[REWARD_INDEX].funder.toString()).eq(
+                  creator.publicKey.toString()
+                );
+
+                const creatorRewardAta = getOrCreateAssociatedTokenAccount(
+                  svm,
+                  creator,
+                  rewardMint,
+                  creator.publicKey,
+                  TOKEN_PROGRAM_ID
+                );
+
+                warpToTimestamp(svm, rewardMid);
+                await claimReward(svm, {
+                  index: REWARD_INDEX,
+                  user: creator,
+                  pool,
+                  position,
+                  skipReward: 0,
+                });
+
+                await removeAllLiquidity(svm, {
+                  owner: creator,
+                  pool,
+                  position,
+                  tokenAAmountThreshold: new BN(0),
+                  tokenBAmountThreshold: new BN(0),
+                });
+
+                const afterExit = getPool(svm, pool);
+                expect(afterExit.liquidity.toString()).eq(DEAD_LIQUIDITY.toString());
+
+                warpToTimestamp(svm, rewardEnd.addn(1));
+
+                const rewardVault = afterExit.rewardInfos[REWARD_INDEX].vault;
+                const before = new BN(getTokenBalance(svm, creatorRewardAta));
+
+                await withdrawDeadLiquidityReward(svm, {
+                  index: REWARD_INDEX,
+                  funder: creator,
+                  pool,
+                });
+
+                const after = new BN(getTokenBalance(svm, creatorRewardAta));
+                const delta = after.sub(before);
+                const vaultResidual = new BN(getTokenBalance(svm, rewardVault));
+
+                console.log("PHASE5F_CREATOR_REWARD0_DEAD_LIQUIDITY_TAKEOVER_DELTA", {
+                  before: before.toString(),
+                  after: after.toString(),
+                  delta: delta.toString(),
+                  vaultResidual: vaultResidual.toString(),
+                });
+
+                expect(delta.gtn(0)).eq(true);
+                expect(vaultResidual.eqn(0)).eq(true);
+              });
+
+          '''
+
+          if "PHASE5F: creator can reassign already-funded reward0 funder" not in s:
+              s = s.replace(
+                  '      it("After the last LP exits", async () => {',
+                  test_block + '\n      it("After the last LP exits", async () => {',
+                  1,
+              )
+
+          p.write_text(s)
+          print("[patched]", p)
+          PY
+
+      - name: Install deps
+        working-directory: damm-v2
+        run: |
+          pnpm config set strict-dep-builds false
+          pnpm install
+
+      - name: Run Phase5F
+        working-directory: damm-v2
+        run: |
+          pnpm test tests/deadLiquidityReward.test.ts --grep "PHASE5F" 2>&1 | tee phase5f.log
+
+      - name: Upload Phase5F log
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase5f-dead-liquidity-funder-reassignment-log
+          path: damm-v2/phase5f.log
