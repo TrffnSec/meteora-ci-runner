@@ -159,6 +159,9 @@ jobs:
           print("[patched]", p)
           PY
 
+          echo "===== verify Phase5F insertion ====="
+          grep -n "PHASE5F" tests/deadLiquidityReward.test.ts
+
       - name: Install deps
         working-directory: damm-v2
         run: |
@@ -168,7 +171,15 @@ jobs:
       - name: Run Phase5F
         working-directory: damm-v2
         run: |
-          pnpm test tests/deadLiquidityReward.test.ts --grep "PHASE5F" 2>&1 | tee phase5f.log
+          bun run build-local
+          ANCHOR_WALLET=keys/local/admin-bossj3JvwiNK7pvjr149DqdtJxf2gdygbcmEPTkb2F1.json \
+            bunx ts-mocha -p ./tsconfig.json -t 1000000 tests/deadLiquidityReward.test.ts --grep "PHASE5F" \
+            2>&1 | tee phase5f.log
+
+          if grep -q "0 passing" phase5f.log; then
+            echo "[fatal] Phase5F grep matched zero tests"
+            exit 1
+          fi
 
       - name: Upload Phase5F log
         uses: actions/upload-artifact@v4
