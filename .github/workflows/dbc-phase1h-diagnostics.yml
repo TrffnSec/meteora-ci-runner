@@ -85,13 +85,13 @@ jobs:
           set -euo pipefail
           cd "$HOME/targets/meteora/repos/dynamic-bonding-curve"
 
-          perl -0pi -e 's@\Qreturn { info: { slices }, accounts };\E@const phase1hDir = process.env.PHASE1H_DIAG_DIR;\n  const phase1hPayload = {\n    tag: "PHASE1H_TRANSFER_HOOK_REMAINING_ACCOUNTS",\n    slices: slices.map((x) => ({ accountsType: x.accountsType, length: Number(x.length) })),\n    accounts: accounts.map((x) => ({ pubkey: x.pubkey.toBase58(), isSigner: x.isSigner, isWritable: x.isWritable })),\n  };\n  if (phase1hDir) {\n    const fs = require("node:fs");\n    fs.mkdirSync(phase1hDir, { recursive: true });\n    fs.appendFileSync(phase1hDir + "/phase1h-transfer-hook-remaining-accounts.jsonl", JSON.stringify(phase1hPayload) + "\\\\n");\n  }\n  console.error("PHASE1H_TRANSFER_HOOK_REMAINING_ACCOUNTS", JSON.stringify(phase1hPayload));\n\n  return { info: { slices }, accounts };@' ./tests/utils/token.ts
+          perl -0pi -e 's@\Qreturn { info: { slices }, accounts };\E@const phase1hDir = process.env.PHASE1H_DIAG_DIR;\n  const phase1hPayload = {\n    tag: "PHASE1H_TRANSFER_HOOK_REMAINING_ACCOUNTS",\n    slices: slices.map((x) => ({ accountsType: x.accountsType, length: Number(x.length) })),\n    accounts: accounts.map((x) => ({ pubkey: x.pubkey.toBase58(), isSigner: x.isSigner, isWritable: x.isWritable })),\n  };\n  if (phase1hDir) {\n    const fs = require("node:fs");\n    fs.mkdirSync(phase1hDir, { recursive: true });\n    fs.appendFileSync(phase1hDir + "/phase1h-transfer-hook-remaining-accounts.jsonl", JSON.stringify(phase1hPayload) + "\\n");\n  }\n  console.error("PHASE1H_TRANSFER_HOOK_REMAINING_ACCOUNTS", JSON.stringify(phase1hPayload));\n\n  return { info: { slices }, accounts };@' ./tests/utils/token.ts
 
           perl -0pi -e 's@let parsed_transfer_hook_accounts = parse_transfer_hook_accounts\(@msg!("PHASE1H_PROCESS_SWAP_REMAINING_ACCOUNTS_START count={}", remaining_accounts.len());\n    for (i, account) in remaining_accounts.iter().enumerate() {\n        msg!("PHASE1H_REMAINING_ACCOUNT index={} key={} signer={} writable={} owner={} executable={}", i, account.key, account.is_signer, account.is_writable, account.owner, account.executable);\n    }\n    msg!("PHASE1H_PROCESS_SWAP_REMAINING_ACCOUNTS_END");\n\n    let parsed_transfer_hook_accounts = parse_transfer_hook_accounts(@' ./programs/dynamic-bonding-curve/src/instructions/swap/process_swap.rs
 
           grep -R "PHASE1H_TRANSFER_HOOK_REMAINING_ACCOUNTS" -n ./tests/utils/token.ts
           grep -R "PHASE1H_PROCESS_SWAP_REMAINING_ACCOUNTS_START" -n ./programs/dynamic-bonding-curve/src/instructions/swap/process_swap.rs
-          perl -0pi -e 's@const poolAuthority = derivePoolAuthority\(\);@const phase1hDir = process.env.PHASE1H_DIAG_DIR;\n  const phase1hPayload = {\n    tag: "PHASE1H_FIRST_SWAP_CREATE_SWAP_IX_ACCOUNTS",\n    transferHookAccountsInfo,\n    transferHookAccounts: transferHookAccounts.map((x) => ({ pubkey: x.pubkey.toBase58(), isSigner: x.isSigner, isWritable: x.isWritable })),\n    includeSysvar,\n  };\n  if (phase1hDir) {\n    const fs = require("node:fs");\n    fs.mkdirSync(phase1hDir, { recursive: true });\n    fs.appendFileSync(phase1hDir + "/phase1h-first-swap-create-swap-ix-accounts.jsonl", JSON.stringify(phase1hPayload) + "\\\\n");\n  }\n  console.error("PHASE1H_FIRST_SWAP_CREATE_SWAP_IX_ACCOUNTS", JSON.stringify(phase1hPayload));\n\n  const poolAuthority = derivePoolAuthority();@' ./tests/first_swap_with_transfer_hook.tests.ts
+          perl -0pi -e 's@const poolAuthority = derivePoolAuthority\(\);@const phase1hDir = process.env.PHASE1H_DIAG_DIR;\n  const phase1hPayload = {\n    tag: "PHASE1H_FIRST_SWAP_CREATE_SWAP_IX_ACCOUNTS",\n    transferHookAccountsInfo,\n    transferHookAccounts: transferHookAccounts.map((x) => ({ pubkey: x.pubkey.toBase58(), isSigner: x.isSigner, isWritable: x.isWritable })),\n    includeSysvar,\n  };\n  if (phase1hDir) {\n    const fs = require("node:fs");\n    fs.mkdirSync(phase1hDir, { recursive: true });\n    fs.appendFileSync(phase1hDir + "/phase1h-first-swap-create-swap-ix-accounts.jsonl", JSON.stringify(phase1hPayload) + "\\n");\n  }\n  console.error("PHASE1H_FIRST_SWAP_CREATE_SWAP_IX_ACCOUNTS", JSON.stringify(phase1hPayload));\n\n  const poolAuthority = derivePoolAuthority();@' ./tests/first_swap_with_transfer_hook.tests.ts
 
           grep -R "PHASE1H_FIRST_SWAP_CREATE_SWAP_IX_ACCOUNTS" -n ./tests/first_swap_with_transfer_hook.tests.ts
 
@@ -126,7 +126,8 @@ jobs:
             2>&1 | tee "$GITHUB_WORKSPACE/artifacts/phase1h-migrate-transfer-hook-diagnostics.log"
 
           grep -q "PHASE1H_TRANSFER_HOOK_REMAINING_ACCOUNTS" "$GITHUB_WORKSPACE/artifacts/phase1h-migrate-transfer-hook-diagnostics.log"
-          grep -q "PHASE1H_PROCESS_SWAP_REMAINING_ACCOUNTS_START" "$GITHUB_WORKSPACE/artifacts/phase1h-migrate-transfer-hook-diagnostics.log"
+          test -s "$GITHUB_WORKSPACE/artifacts/phase1h-transfer-hook-remaining-accounts.jsonl"
+          cat "$GITHUB_WORKSPACE/artifacts/phase1h-transfer-hook-remaining-accounts.jsonl"
 
       - name: Upload Phase 1H logs
         uses: actions/upload-artifact@v4
