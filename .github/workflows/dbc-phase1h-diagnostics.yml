@@ -85,7 +85,7 @@ jobs:
           set -euo pipefail
           cd "$HOME/targets/meteora/repos/dynamic-bonding-curve"
 
-          perl -0pi -e 's@\Qreturn { info: { slices }, accounts };\E@console.log("PHASE1H_TRANSFER_HOOK_REMAINING_ACCOUNTS", JSON.stringify({ slices: slices.map((x) => ({ accountsType: x.accountsType, length: Number(x.length) })), accounts: accounts.map((x) => ({ pubkey: x.pubkey.toBase58(), isSigner: x.isSigner, isWritable: x.isWritable })) }, null, 2));\n\n  return { info: { slices }, accounts };@' ./tests/utils/token.ts
+          perl -0pi -e 's@\Qreturn { info: { slices }, accounts };\E@const phase1hDir = process.env.PHASE1H_DIAG_DIR;\n  const phase1hPayload = {\n    tag: "PHASE1H_TRANSFER_HOOK_REMAINING_ACCOUNTS",\n    slices: slices.map((x) => ({ accountsType: x.accountsType, length: Number(x.length) })),\n    accounts: accounts.map((x) => ({ pubkey: x.pubkey.toBase58(), isSigner: x.isSigner, isWritable: x.isWritable })),\n  };\n  if (phase1hDir) {\n    const fs = require("node:fs");\n    fs.mkdirSync(phase1hDir, { recursive: true });\n    fs.appendFileSync(`${phase1hDir}/phase1h-transfer-hook-remaining-accounts.jsonl`, JSON.stringify(phase1hPayload) + "\\\\n");\n  }\n  console.error("PHASE1H_TRANSFER_HOOK_REMAINING_ACCOUNTS", JSON.stringify(phase1hPayload));\n\n  return { info: { slices }, accounts };@' ./tests/utils/token.ts
 
           perl -0pi -e 's@let parsed_transfer_hook_accounts = parse_transfer_hook_accounts\(@msg!("PHASE1H_PROCESS_SWAP_REMAINING_ACCOUNTS_START count={}", remaining_accounts.len());\n    for (i, account) in remaining_accounts.iter().enumerate() {\n        msg!("PHASE1H_REMAINING_ACCOUNT index={} key={} signer={} writable={} owner={} executable={}", i, account.key, account.is_signer, account.is_writable, account.owner, account.executable);\n    }\n    msg!("PHASE1H_PROCESS_SWAP_REMAINING_ACCOUNTS_END");\n\n    let parsed_transfer_hook_accounts = parse_transfer_hook_accounts(@' ./programs/dynamic-bonding-curve/src/instructions/swap/process_swap.rs
 
@@ -103,11 +103,12 @@ jobs:
           cd "$HOME/targets/meteora/repos/dynamic-bonding-curve"
           mkdir -p "$GITHUB_WORKSPACE/artifacts"
 
-          bun test ./tests/first_swap_with_transfer_hook.tests.ts \
+          PHASE1H_DIAG_DIR="$GITHUB_WORKSPACE/artifacts" \
+            bun test ./tests/first_swap_with_transfer_hook.tests.ts \
             2>&1 | tee "$GITHUB_WORKSPACE/artifacts/phase1h-first-swap-transfer-hook-diagnostics.log"
 
-          grep -q "PHASE1H_TRANSFER_HOOK_REMAINING_ACCOUNTS" "$GITHUB_WORKSPACE/artifacts/phase1h-first-swap-transfer-hook-diagnostics.log"
-          grep -q "PHASE1H_PROCESS_SWAP_REMAINING_ACCOUNTS_START" "$GITHUB_WORKSPACE/artifacts/phase1h-first-swap-transfer-hook-diagnostics.log"
+          cat "$GITHUB_WORKSPACE/artifacts/phase1h-transfer-hook-remaining-accounts.jsonl"
+          test -s "$GITHUB_WORKSPACE/artifacts/phase1h-transfer-hook-remaining-accounts.jsonl"
 
       - name: Run Phase 1H migration diagnostic
         run: |
@@ -117,7 +118,8 @@ jobs:
 
           perl -0pi -e 's/before\(async \(\) =>/beforeAll(async () =>/g; s/after\(async \(\) =>/afterAll(async () =>/g; s/it\("Admin create operator account"/it.skip("Admin create operator account"/g' ./tests/migrate_to_damm_v2_with_transfer_hook.tests.ts
 
-          bun test ./tests/migrate_to_damm_v2_with_transfer_hook.tests.ts \
+          PHASE1H_DIAG_DIR="$GITHUB_WORKSPACE/artifacts" \
+            bun test ./tests/migrate_to_damm_v2_with_transfer_hook.tests.ts \
             2>&1 | tee "$GITHUB_WORKSPACE/artifacts/phase1h-migrate-transfer-hook-diagnostics.log"
 
           grep -q "PHASE1H_TRANSFER_HOOK_REMAINING_ACCOUNTS" "$GITHUB_WORKSPACE/artifacts/phase1h-migrate-transfer-hook-diagnostics.log"
