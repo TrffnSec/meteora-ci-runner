@@ -170,7 +170,9 @@ jobs:
 
       - name: Install deps
         working-directory: damm-v2
-        run: pnpm install
+        run: |
+          pnpm config set strict-dep-builds false
+          pnpm install
 
       - name: Run Phase5E
         working-directory: damm-v2
