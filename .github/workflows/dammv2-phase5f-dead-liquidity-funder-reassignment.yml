@@ -58,6 +58,7 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           p = Path("tests/deadLiquidityReward.test.ts")
           s = p.read_text()
@@ -67,33 +68,29 @@ jobs:
               "Dead liquidity reward",
               "withdrawDeadLiquidityReward",
               "After the last LP exits",
-              "non-compounding pool",
+              "} from \"./helpers\";",
           ]:
               print(needle, s.find(needle))
 
-          if "    updateRewardFunder,\n" not in s:
-              for marker in [
-                  "    warpToTimestamp,\n    withdrawDeadLiquidityReward,\n",
-                  "    withdrawDeadLiquidityReward,\n",
-                  "    U64_MAX,\n",
-              ]:
-                  if marker in s:
-                      if marker.startswith("    warpToTimestamp"):
-                          s = s.replace(
-                              marker,
-                              "    updateRewardFunder,\n" + marker,
-                              1,
-                          )
-                      else:
-                          s = s.replace(
-                              marker,
-                              marker + "    updateRewardFunder,\n",
-                              1,
-                          )
-                      break
-              else:
+          # Robustly insert updateRewardFunder into the existing ./helpers import block.
+          if "updateRewardFunder" not in s:
+              s, n = re.subn(
+                  r'(\n\s*withdrawDeadLiquidityReward,\n\s*}\s*from\s*"./helpers";)',
+                  r'\n    updateRewardFunder,\1',
+                  s,
+                  count=1,
+              )
+              if n != 1:
+                  s, n = re.subn(
+                      r'(\n\s*}\s*from\s*"./helpers";)',
+                      r'\n    updateRewardFunder,\1',
+                      s,
+                      count=1,
+                  )
+              if n != 1:
                   raise SystemExit("Could not insert updateRewardFunder import")
 
+          # Add ATA creator helper import.
           if 'getOrCreateAssociatedTokenAccount' not in s:
               s = s.replace(
                   'import { BaseFeeMode, encodeFeeTimeSchedulerParams } from "./helpers/feeCodec";\n',
@@ -191,6 +188,9 @@ jobs:
           p.write_text(s)
           print("[patched]", p)
           PY
+
+          echo "===== verify imports ====="
+          grep -n -A35 -B5 "from \"./helpers\"" tests/deadLiquidityReward.test.ts | sed -n '1,80p'
 
           echo "===== verify Phase5F insertion ====="
           grep -n "PHASE5F" tests/deadLiquidityReward.test.ts
