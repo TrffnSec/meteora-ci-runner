@@ -1,7 +1,12 @@
 name: DAMM v2 Phase5F dead-liquidity funder reassignment
 
-on:
+"on":
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/dammv2-phase5f-dead-liquidity-funder-reassignment.yml"
 
 jobs:
   phase5f:
